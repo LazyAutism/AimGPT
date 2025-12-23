@@ -1,13 +1,49 @@
-﻿--========================================================--
+--========================================================--
 --===================== AIMGPT UI ========================--
+--======================== v1.0.3 =======================--
 --========================================================--
 
-local player = game.Players.LocalPlayer
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+
+--========================================================--
+--==================== FILE SYSTEM =======================--
+--========================================================--
+
+local FS_AVAILABLE = writefile and readfile and isfile and makefolder
+local FOLDER = "AimGPT"
+local FILE = FOLDER .. "/settings.json"
+
+local function saveSettings(tbl)
+	if not FS_AVAILABLE then return end
+	if not isfolder(FOLDER) then
+		makefolder(FOLDER)
+	end
+	writefile(FILE, HttpService:JSONEncode(tbl))
+end
+
+local function loadSettings()
+	if not FS_AVAILABLE then return nil end
+	if not isfile(FILE) then return nil end
+	local ok, data = pcall(function()
+		return HttpService:JSONDecode(readfile(FILE))
+	end)
+	return ok and data or nil
+end
+
+--========================================================--
+--======================= GUI ============================--
+--========================================================--
+
 local gui = Instance.new("ScreenGui")
 gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- Main Frame
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 260, 0, 260)
 frame.Position = UDim2.new(0, 20, 0, 20)
@@ -15,26 +51,14 @@ frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 frame.Active = true
 frame.Draggable = true
 frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 12)
-corner.Parent = frame
+--========================================================--
+--===================== TITLE BAR ========================--
+--========================================================--
 
--- UI Toggle (RightControl)
-local UIS = game:GetService("UserInputService")
-local uiVisible = true
-
-UIS.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	if input.KeyCode == Enum.KeyCode.RightControl then
-		uiVisible = not uiVisible
-		frame.Visible = uiVisible
-	end
-end)
-
--- Title Label
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 40)
+title.Size = UDim2.new(1, -40, 0, 40)
 title.Text = "AimGPT"
 title.TextColor3 = Color3.fromRGB(255, 0, 0)
 title.BackgroundTransparency = 1
@@ -42,38 +66,55 @@ title.TextScaled = true
 title.Font = Enum.Font.Fantasy
 title.Parent = frame
 
+local gear = Instance.new("TextButton")
+gear.Size = UDim2.new(0, 32, 0, 32)
+gear.Position = UDim2.new(1, -36, 0, 4)
+gear.Text = "⚙"
+gear.TextScaled = true
+gear.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+gear.TextColor3 = Color3.fromRGB(255, 0, 0)
+gear.Parent = frame
+Instance.new("UICorner", gear).CornerRadius = UDim.new(1, 0)
+
 --========================================================--
---==================== SCROLLING BUTTON AREA =============--
+--======================= TABS ===========================--
 --========================================================--
 
-local scroll = Instance.new("ScrollingFrame")
-scroll.Size = UDim2.new(1, 0, 0, 180)
-scroll.Position = UDim2.new(0, 0, 0, 40)
-scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-scroll.ScrollBarThickness = 6
-scroll.BackgroundTransparency = 1
-scroll.Parent = frame
+local mainTab = Instance.new("ScrollingFrame")
+local settingsTab = Instance.new("ScrollingFrame")
 
-local UIList = Instance.new("UIListLayout")
-UIList.Padding = UDim.new(0, 8)
-UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-UIList.Parent = scroll
-
-local UIPadding = Instance.new("UIPadding")
-UIPadding.PaddingBottom = UDim.new(0, 40)
-UIPadding.PaddingTop = UDim.new(0, 10)
-UIPadding.Parent = scroll
-
-local function updateCanvas()
-	scroll.CanvasSize = UDim2.new(0, 0, 0, UIList.AbsoluteContentSize.Y + 20)
+for _, tab in ipairs({ mainTab, settingsTab }) do
+	tab.Size = UDim2.new(1, 0, 0, 180)
+	tab.Position = UDim2.new(0, 0, 0, 40)
+	tab.ScrollBarThickness = 6
+	tab.BackgroundTransparency = 1
+	tab.CanvasSize = UDim2.new(0, 0, 0, 0)
+	tab.Parent = frame
 end
-UIList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCanvas)
+settingsTab.Visible = false
+
+local function setupLayout(tab)
+	local list = Instance.new("UIListLayout", tab)
+	list.Padding = UDim.new(0, 8)
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+	local pad = Instance.new("UIPadding", tab)
+	pad.PaddingTop = UDim.new(0, 10)
+	pad.PaddingBottom = UDim.new(0, 40)
+
+	list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		tab.CanvasSize = UDim2.new(0, 0, 0, list.AbsoluteContentSize.Y + 20)
+	end)
+end
+
+setupLayout(mainTab)
+setupLayout(settingsTab)
 
 --========================================================--
---===================== BUTTON UI ========================--
+--==================== BUTTON FACTORY ====================--
 --========================================================--
 
-local function createButton(text)
+local function createButton(parent, text)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(0.9, 0, 0, 50)
 	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
@@ -81,212 +122,157 @@ local function createButton(text)
 	btn.TextSize = 20
 	btn.Font = Enum.Font.FredokaOne
 	btn.Text = text
-	btn.Parent = scroll
-
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, 8)
-	c.Parent = btn
-
+	btn.Parent = parent
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
 	return btn
 end
 
-local fovBtn = createButton("Toggle FOV")
-local modeBtn = createButton("direct mode")
-local aimLocBtn = createButton("aim: head")
-
--- Press Visuals
-local function pressVisual(btn)
-	btn.BackgroundColor3 = Color3.fromRGB(140, 140, 140)
-	btn.TextColor3 = Color3.fromRGB(120, 0, 0)
-end
-
-local function releaseVisual(btn, normalText)
-	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-	btn.TextColor3 = Color3.fromRGB(80, 0, 0)
-	btn.Text = normalText
-end
-
 --========================================================--
---=================== FOV TOGGLE LOGIC ===================--
+--==================== MAIN TAB ==========================--
 --========================================================--
 
-local RunService = game:GetService("RunService")
-local cam = workspace.CurrentCamera
-
-local DEFAULT_FOV = cam.FieldOfView
-local FOVEnabled = false
-local FOVLoop = nil
-
-fovBtn.MouseButton1Down:Connect(function()
-	pressVisual(fovBtn)
-end)
-
-fovBtn.MouseButton1Up:Connect(function()
-	releaseVisual(fovBtn, "Toggle FOV")
-
-	FOVEnabled = not FOVEnabled
-
-	if FOVEnabled then
-		FOVLoop = RunService.RenderStepped:Connect(function()
-			cam.FieldOfView = 120
-		end)
-	else
-		if FOVLoop then
-			FOVLoop:Disconnect()
-			FOVLoop = nil
-		end
-		cam.FieldOfView = DEFAULT_FOV
-	end
-end)
+local bindEnabled = true
+local toggleBindBtn = createButton(mainTab, "Toggle Bind: ON")
+local fovBtn = createButton(mainTab, "Toggle FOV")
+local modeBtn = createButton(mainTab, "direct mode")
+local aimLocBtn = createButton(mainTab, "aim: head")
 
 --========================================================--
---============== HOVER / NEAREST MODE LOGIC ==============--
+--==================== SETTINGS TAB ======================--
 --========================================================--
 
-local modeIndex = 1
-local modeList = {
-	"direct mode",
-	"nearest mode(cursor)",
-	"nearest mode"
-}
-
-modeBtn.MouseButton1Down:Connect(function()
-	pressVisual(modeBtn)
-end)
-
-modeBtn.MouseButton1Up:Connect(function()
-	modeIndex += 1
-	if modeIndex > #modeList then modeIndex = 1 end
-	releaseVisual(modeBtn, modeList[modeIndex])
-end)
+local aimBindBtn = createButton(settingsTab, "Aimlock Bind: T")
+local uiBindBtn = createButton(settingsTab, "UI Bind: RightCtrl")
+local relockBtn = createButton(settingsTab, "Relock on respawn: OFF")
+local unloadBtn = createButton(settingsTab, "Unload Script")
 
 --========================================================--
---============== AIM LOCATION: HEAD / CENTER =============--
+--===================== STATE ============================--
 --========================================================--
 
+local aimBind = Enum.KeyCode.T
+local uiBind = Enum.KeyCode.RightControl
+local waitingFor = nil
+local relockEnabled = false
 local aimHead = true
 
-aimLocBtn.MouseButton1Down:Connect(function()
-	pressVisual(aimLocBtn)
+local modes = { "direct mode", "nearest mode(cursor)", "nearest mode" }
+local modeIndex = 1
+
+--========================================================--
+--==================== LOAD SETTINGS =====================--
+--========================================================--
+
+local saved = loadSettings()
+if saved then
+	if saved.aimBind then aimBind = Enum.KeyCode[saved.aimBind] end
+	if saved.uiBind then uiBind = Enum.KeyCode[saved.uiBind] end
+	if saved.modeIndex then modeIndex = saved.modeIndex end
+	if saved.aimHead ~= nil then aimHead = saved.aimHead end
+	if saved.bindEnabled ~= nil then bindEnabled = saved.bindEnabled end
+	if saved.relockEnabled ~= nil then relockEnabled = saved.relockEnabled end
+end
+
+modeBtn.Text = modes[modeIndex]
+aimLocBtn.Text = aimHead and "aim: head" or "aim: center"
+toggleBindBtn.Text = bindEnabled and "Toggle Bind: ON" or "Toggle Bind: OFF"
+relockBtn.Text = relockEnabled and "Relock on respawn: ON" or "Relock on respawn: OFF"
+aimBindBtn.Text = "Aimlock Bind: " .. aimBind.Name
+uiBindBtn.Text = "UI Bind: " .. uiBind.Name
+
+local function persist()
+	saveSettings({
+		aimBind = aimBind.Name,
+		uiBind = uiBind.Name,
+		modeIndex = modeIndex,
+		aimHead = aimHead,
+		bindEnabled = bindEnabled,
+		relockEnabled = relockEnabled
+	})
+end
+
+--========================================================--
+--===================== BUTTON LOGIC =====================--
+--========================================================--
+
+aimBindBtn.MouseButton1Click:Connect(function()
+	waitingFor = "aim"
+	aimBindBtn.Text = "Press a key..."
 end)
 
-aimLocBtn.MouseButton1Up:Connect(function()
+uiBindBtn.MouseButton1Click:Connect(function()
+	waitingFor = "ui"
+	uiBindBtn.Text = "Press a key..."
+end)
+
+toggleBindBtn.MouseButton1Click:Connect(function()
+	bindEnabled = not bindEnabled
+	toggleBindBtn.Text = bindEnabled and "Toggle Bind: ON" or "Toggle Bind: OFF"
+	persist()
+end)
+
+modeBtn.MouseButton1Click:Connect(function()
+	modeIndex = modeIndex % #modes + 1
+	modeBtn.Text = modes[modeIndex]
+	persist()
+end)
+
+aimLocBtn.MouseButton1Click:Connect(function()
 	aimHead = not aimHead
-	releaseVisual(aimLocBtn, aimHead and "aim: head" or "aim: center")
+	aimLocBtn.Text = aimHead and "aim: head" or "aim: center"
+	persist()
 end)
 
---========================================================--
---==================== LOCK-ON WITH T =====================--
---========================================================--
+relockBtn.MouseButton1Click:Connect(function()
+	relockEnabled = not relockEnabled
+	relockBtn.Text = relockEnabled and "Relock on respawn: ON" or "Relock on respawn: OFF"
+	persist()
+end)
 
-local Mouse = player:GetMouse()
-local LockEnabled = false
-local LockedTarget = nil
-
-local function getAimPosition(char)
-	if aimHead and char:FindFirstChild("Head") then
-		return char.Head.Position
-	end
-	if char:FindFirstChild("HumanoidRootPart") then
-		return char.HumanoidRootPart.Position
-	end
-end
-
-local function findDirectTarget()
-	local target = Mouse.Target
-	if target and target.Parent and target.Parent:FindFirstChild("Humanoid") then
-		return target.Parent
-	end
-end
-
-local function findNearestToCursor()
-	local mousePos = Mouse.Hit.Position
-	local closest, dist = nil, 9999
-
-	for _, m in ipairs(workspace:GetDescendants()) do
-		if m:IsA("Humanoid")
-			and m.Parent ~= player.Character
-			and m.Parent:FindFirstChild("HumanoidRootPart") then
-
-			local hrp = m.Parent.HumanoidRootPart
-			local d = (hrp.Position - mousePos).Magnitude
-
-			if d < dist then
-				dist = d
-				closest = m.Parent
-			end
-		end
-	end
-	return closest
-end
-
-local function findNearestToPlayer()
-	local me = player.Character
-	if not me or not me:FindFirstChild("HumanoidRootPart") then return end
-
-	local myPos = me.HumanoidRootPart.Position
-	local closest, dist = nil, 9999
-
-	for _, m in ipairs(workspace:GetDescendants()) do
-		if m:IsA("Humanoid")
-			and m.Parent ~= me
-			and m.Parent:FindFirstChild("HumanoidRootPart") then
-
-			local hrp = m.Parent.HumanoidRootPart
-			local d = (hrp.Position - myPos).Magnitude
-
-			if d < dist then
-				dist = d
-				closest = m.Parent
-			end
-		end
-	end
-	return closest
-end
+gear.MouseButton1Click:Connect(function()
+	mainTab.Visible = not mainTab.Visible
+	settingsTab.Visible = not settingsTab.Visible
+end)
 
 UIS.InputBegan:Connect(function(input, gp)
 	if gp then return end
-
-	if input.KeyCode == Enum.KeyCode.T then
-		LockedTarget = nil
-		LockEnabled = not LockEnabled
-
-		if not LockEnabled then return end
-
-		if modeIndex == 1 then
-			LockedTarget = findDirectTarget()
-		elseif modeIndex == 2 then
-			LockedTarget = findNearestToCursor()
+	if waitingFor and input.KeyCode ~= Enum.KeyCode.Unknown then
+		if waitingFor == "aim" then
+			aimBind = input.KeyCode
+			aimBindBtn.Text = "Aimlock Bind: " .. aimBind.Name
 		else
-			LockedTarget = findNearestToPlayer()
+			uiBind = input.KeyCode
+			uiBindBtn.Text = "UI Bind: " .. uiBind.Name
 		end
-	end
-end)
-
-RunService.RenderStepped:Connect(function()
-	if LockEnabled and LockedTarget then
-		local aimPos = getAimPosition(LockedTarget)
-		if aimPos then
-			cam.CFrame = CFrame.new(cam.CFrame.Position, aimPos)
-		end
+		waitingFor = nil
+		persist()
 	end
 end)
 
 --========================================================--
---==================== RAINBOW VERSION ====================--
+--===================== UNLOAD ===========================--
+--========================================================--
+
+unloadBtn.MouseButton1Click:Connect(function()
+	persist()
+	gui:Destroy()
+end)
+
+--========================================================--
+--===================== VERSION ==========================--
 --========================================================--
 
 local ver = Instance.new("TextLabel")
 ver.Size = UDim2.new(1, 0, 0, 20)
 ver.Position = UDim2.new(0, 0, 1, -20)
-ver.Text = "v1.0.2"
-ver.TextScaled = true
 ver.BackgroundTransparency = 1
+ver.TextScaled = true
 ver.Font = Enum.Font.Arcade
+ver.Text = "v1.0.3"
 ver.Parent = frame
 
-local hue = 0
+local h = 0
 RunService.RenderStepped:Connect(function()
-	hue = (hue + 0.005) % 1
-	ver.TextColor3 = Color3.fromHSV(hue, 1, 1)
+	h = (h + 0.005) % 1
+	ver.TextColor3 = Color3.fromHSV(h, 1, 1)
 end)
