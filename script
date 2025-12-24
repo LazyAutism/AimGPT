@@ -10,6 +10,7 @@ local Camera = workspace.CurrentCamera
 local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
+local mouse = player:GetMouse()
 
 --========================================================--
 --==================== FILE SYSTEM =======================--
@@ -143,7 +144,6 @@ local aimLocBtn = createButton(mainTab, "aim: head")
 
 local aimBindBtn = createButton(settingsTab, "Aimlock Bind: T")
 local uiBindBtn = createButton(settingsTab, "UI Bind: RightCtrl")
-local relockBtn = createButton(settingsTab, "Relock on respawn: OFF")
 local unloadBtn = createButton(settingsTab, "Unload Script")
 
 --========================================================--
@@ -153,11 +153,15 @@ local unloadBtn = createButton(settingsTab, "Unload Script")
 local aimBind = Enum.KeyCode.T
 local uiBind = Enum.KeyCode.RightControl
 local waitingFor = nil
-local relockEnabled = false
 local aimHead = true
 
 local modes = { "direct mode", "nearest mode(cursor)", "nearest mode" }
 local modeIndex = 1
+
+local lockEnabled = false
+local lockedPart = nil
+local deathConn = nil
+local ancestryConn = nil
 
 --========================================================--
 --==================== LOAD SETTINGS =====================--
@@ -170,13 +174,11 @@ if saved then
 	if saved.modeIndex then modeIndex = saved.modeIndex end
 	if saved.aimHead ~= nil then aimHead = saved.aimHead end
 	if saved.bindEnabled ~= nil then bindEnabled = saved.bindEnabled end
-	if saved.relockEnabled ~= nil then relockEnabled = saved.relockEnabled end
 end
 
 modeBtn.Text = modes[modeIndex]
 aimLocBtn.Text = aimHead and "aim: head" or "aim: center"
 toggleBindBtn.Text = bindEnabled and "Toggle Bind: ON" or "Toggle Bind: OFF"
-relockBtn.Text = relockEnabled and "Relock on respawn: ON" or "Relock on respawn: OFF"
 aimBindBtn.Text = "Aimlock Bind: " .. aimBind.Name
 uiBindBtn.Text = "UI Bind: " .. uiBind.Name
 
@@ -186,10 +188,124 @@ local function persist()
 		uiBind = uiBind.Name,
 		modeIndex = modeIndex,
 		aimHead = aimHead,
-		bindEnabled = bindEnabled,
-		relockEnabled = relockEnabled
+		bindEnabled = bindEnabled
 	})
 end
+
+--========================================================--
+--===================== AIM LOGIC (FIXED) =================--
+--========================================================--
+
+local function clearLock()
+	lockEnabled = false
+	lockedPart = nil
+	if deathConn then deathConn:Disconnect() deathConn = nil end
+	if ancestryConn then ancestryConn:Disconnect() ancestryConn = nil end
+end
+
+local function getAimPart(model)
+	if aimHead then
+		return model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
+	end
+	return model:FindFirstChild("HumanoidRootPart")
+end
+
+local function validHumanoidModel(model)
+	if not model:IsA("Model") then return false end
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then return false end
+	if player.Character and model == player.Character then return false end
+	return true
+end
+
+local function findTarget()
+	local best, bestDist = nil, math.huge
+
+	for _, model in ipairs(workspace:GetDescendants()) do
+		if validHumanoidModel(model) then
+			local part = getAimPart(model)
+			if part then
+				if modeIndex == 1 then
+					if mouse.Target and mouse.Target:IsDescendantOf(model) then
+						return part
+					end
+				elseif modeIndex == 2 then
+					local sp, on = Camera:WorldToScreenPoint(part.Position)
+					if on then
+						local d = (Vector2.new(sp.X, sp.Y) - Vector2.new(mouse.X, mouse.Y)).Magnitude
+						if d < bestDist then
+							bestDist = d
+							best = part
+						end
+					end
+				elseif modeIndex == 3 and player.Character then
+					local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+					if hrp then
+						local d = (part.Position - hrp.Position).Magnitude
+						if d < bestDist then
+							bestDist = d
+							best = part
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return best
+end
+
+UIS.InputBegan:Connect(function(input, gp)
+	if gp then return end
+
+	if waitingFor then
+		if input.KeyCode ~= Enum.KeyCode.Unknown then
+			if waitingFor == "aim" then
+				aimBind = input.KeyCode
+				aimBindBtn.Text = "Aimlock Bind: " .. aimBind.Name
+			else
+				uiBind = input.KeyCode
+				uiBindBtn.Text = "UI Bind: " .. uiBind.Name
+			end
+			waitingFor = nil
+			persist()
+		end
+		return
+	end
+
+	if input.KeyCode == aimBind and bindEnabled then
+		if lockEnabled then
+			clearLock()
+		else
+			local target = findTarget()
+			if target then
+				lockedPart = target
+				lockEnabled = true
+
+				local hum = lockedPart.Parent:FindFirstChildOfClass("Humanoid")
+				if hum then
+					deathConn = hum.Died:Connect(clearLock)
+				end
+
+				ancestryConn = lockedPart.AncestryChanged:Connect(function(_, parent)
+					if not parent then
+						clearLock()
+					end
+				end)
+			end
+		end
+	end
+
+	if input.KeyCode == uiBind then
+		frame.Visible = not frame.Visible
+	end
+end)
+
+RunService.RenderStepped:Connect(function()
+	if lockEnabled and lockedPart then
+		Camera.CFrame = CFrame.new(Camera.CFrame.Position, lockedPart.Position)
+	end
+end)
 
 --========================================================--
 --===================== BUTTON LOGIC =====================--
@@ -223,38 +339,14 @@ aimLocBtn.MouseButton1Click:Connect(function()
 	persist()
 end)
 
-relockBtn.MouseButton1Click:Connect(function()
-	relockEnabled = not relockEnabled
-	relockBtn.Text = relockEnabled and "Relock on respawn: ON" or "Relock on respawn: OFF"
-	persist()
-end)
-
 gear.MouseButton1Click:Connect(function()
 	mainTab.Visible = not mainTab.Visible
 	settingsTab.Visible = not settingsTab.Visible
 end)
 
-UIS.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	if waitingFor and input.KeyCode ~= Enum.KeyCode.Unknown then
-		if waitingFor == "aim" then
-			aimBind = input.KeyCode
-			aimBindBtn.Text = "Aimlock Bind: " .. aimBind.Name
-		else
-			uiBind = input.KeyCode
-			uiBindBtn.Text = "UI Bind: " .. uiBind.Name
-		end
-		waitingFor = nil
-		persist()
-	end
-end)
-
---========================================================--
---===================== UNLOAD ===========================--
---========================================================--
-
 unloadBtn.MouseButton1Click:Connect(function()
 	persist()
+	clearLock()
 	gui:Destroy()
 end)
 
